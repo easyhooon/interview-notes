@@ -595,3 +595,41 @@ actor 분리 검사는 같은 지연시간만으로 충분하지 않아 작업 �
 ### 근거·미확인
 
 [검색 화면과 `LoadMoreEffect`](https://github.com/easyhooon/book-search-android/blob/7e0479d0f1bf77f80378c40762637027615437a8/feature/search/src/main/kotlin/io/github/easyhooon/booksearch/feature/search/SearchScreen.kt), [즐겨찾기 화면](https://github.com/easyhooon/book-search-android/blob/7e0479d0f1bf77f80378c40762637027615437a8/feature/favorites/src/main/kotlin/io/github/easyhooon/booksearch/feature/favorites/FavoritesScreen.kt), [상세 화면](https://github.com/easyhooon/book-search-android/blob/7e0479d0f1bf77f80378c40762637027615437a8/feature/detail/src/main/kotlin/io/github/easyhooon/booksearch/feature/detail/BookDetailScreen.kt)과 [Android 공식 부수 효과 설명](https://developer.android.com/develop/ui/compose/side-effects)을 대조했다. 콜백이 실제로 매번 바뀌거나, 이 래퍼가 관찰된 버그를 고쳤다고 단정하지 않는다. 콜백이 이미 안정적으로 유지된다면 필요한 방어는 아닐 수 있다. Reed 사례는 사용자 제공 설명이며 해당 소스는 이번에 확인하지 않았다.
+
+## Q22. `rememberSerializable`이 있으면 `rememberSaveable`은 필요 없지 않나요?
+
+### 30초 답변
+
+`rememberSerializable`은 Bundle 타입 제한 없이 `@Serializable` 모델을 그대로 저장할 수 있어 편하지만, 상위호환이라고 보지는 않습니다. 저장 위치는 둘 다 saved instance state이므로 크기 제한과 "최소 상태만 저장" 원칙은 같습니다. 그래서 과제에서도 함께 썼습니다. Presenter의 검색어·정렬처럼 여러 필드를 묶은 저장 상태는 `@Serializable` data class와 `rememberSerializable`로 두었고, Screen의 Boolean·String이나 `LazyGridState`처럼 Compose가 `Saver`를 이미 제공하는 상태는 `rememberSaveable`을 그대로 썼습니다.
+
+### 설명 — 선택 기준
+
+| 기준 | `rememberSaveable` | `rememberSerializable` |
+| --- | --- | --- |
+| 저장 계약 | Bundle에 넣을 수 있는 타입(원시 타입·String·Parcelable 등) + `Saver` | `KSerializer`가 있는 타입. reified 오버로드는 serializer를 자동으로 찾고, 명시적 `serializer`/`stateSerializer`도 받는다 |
+| 잘 맞는 경우 | 원시 값, `LazyListState.Saver`·`LazyGridState.Saver` 등 기존 Saver가 있는 Compose 상태 holder, 이미 Parcelable인 타입 | 여러 필드를 묶은 저장용 data class, NavKey처럼 이미 `@Serializable`인 모델 재사용, Parcelable 없이 공통 코드에서 쓰는 KMP 상태 |
+| 비용 | 비원시 타입마다 `Saver`(`listSaver`/`mapSaver`) 작성 | serialization 플러그인·의존성, 비교적 최신 `runtime-saveable` 버전 요구. Saver만 있는 상태 holder에는 직접 KSerializer를 만들어야 한다 |
+| 공통 한계 | Bundle 크기 제한(`TransactionTooLargeException`), 큰 목록·객체 저장 금지 | 동일. 타입 제한이 풀리는 것이지 크기 제한이 풀리는 것은 아니다 |
+
+- "모든 타입"이 아니라 **직렬화 가능한 모든 타입**이다. 직렬화할 수 없는 상태(콜백, 코루틴, 리소스 핸들)는 저장 대상이 아니며 retain이나 재생성 쪽 문제다.
+- 저장 형태를 직접 줄이는 일은 둘 다 할 수 있다. Saver로는 ID만 저장하고, KSerializer로도 필요한 필드만 인코딩할 수 있다. 어느 API를 쓰느냐보다 무엇을 저장하느냐가 핵심이다.
+- `inputs`가 바뀌면 상태를 다시 초기화하는 동작은 같다. 복원 때 저장된 값이 inputs와 일치하는지 검증하지 않는 점도 같다.
+
+### 꼬리질문
+
+- 그럼 앞으로 전부 `rememberSerializable`로 바꾸면 되지 않나요? → 모델이 이미 `@Serializable`이면 그렇게 하는 게 자연스럽다. 하지만 `LazyGridState`처럼 Saver만 제공되는 상태 holder까지 KSerializer를 새로 만들면 득보다 비용이 크다. 일관성 하나만을 위해 바꾸지는 않는다.
+- Bundle 제한이 없다면 검색 결과 목록도 저장해도 되나요? → 아니다. 결과는 Soil 캐시·네트워크로 다시 얻고, 저장 상태에는 검색어·정렬 같은 조건만 둔다(Q4, Q6).
+- `retain`과는 어떻게 다른가요? → retain은 직렬화 없이 객체 인스턴스를 유지하지만 프로세스 종료를 견디지 못한다. 저장 API는 직렬화된 최소 값을 프로세스 재생성 뒤에도 복원한다(Q5).
+- Java `Serializable`과 같은 건가요? → 아니다. kotlinx.serialization의 `@Serializable`/`KSerializer`이며, 리플렉션 기반 Java 직렬화와 다르다.
+
+### 근거·미확인
+
+공식 [rememberSerializable 레퍼런스](https://developer.android.com/reference/kotlin/androidx/compose/runtime/saveable/rememberSerializable.composable): 값 오버로드(`serializer`), `MutableState` 오버로드(`stateSerializer`), `configuration`(`SavedStateConfiguration`) 파라미터, saved instance state를 통한 저장을 확인했다. [MutableStateSerializer 패키지](https://developer.android.com/reference/kotlin/androidx/savedstate/compose/serialization/serializers/package-summary)와 [상태 저장 가이드](https://developer.android.com/develop/ui/compose/state-saving)의 Bundle 크기 제한 설명도 대조했다. 최소 지원 버전은 오버로드마다 다를 수 있어 정확한 버전을 숫자로 단정하지 않는다.
+
+과제 main `106d98d4084b8e2365a33cadd071f62aa3f998b8` 기준:
+
+- [SearchPresenter — `@Serializable SearchSavedState` + `rememberSerializable`](https://github.com/easyhooon/book-search-android/blob/106d98d4084b8e2365a33cadd071f62aa3f998b8/feature/search/src/main/kotlin/io/github/easyhooon/booksearch/feature/search/SearchPresenter.kt#L70)
+- [SearchScreen — `rememberSaveable(..., saver = LazyGridState.Saver)`](https://github.com/easyhooon/book-search-android/blob/106d98d4084b8e2365a33cadd071f62aa3f998b8/feature/search/src/main/kotlin/io/github/easyhooon/booksearch/feature/search/SearchScreen.kt#L117)
+- [FavoritesScreen — Boolean `rememberSaveable`](https://github.com/easyhooon/book-search-android/blob/106d98d4084b8e2365a33cadd071f62aa3f998b8/feature/favorites/src/main/kotlin/io/github/easyhooon/booksearch/feature/favorites/FavoritesScreen.kt#L56)
+
+코드 검색만 했고 빌드·프로세스 종료 복원 테스트를 다시 실행하지 않았다. 두 API의 인코딩 성능 차이는 측정하지 않았다.

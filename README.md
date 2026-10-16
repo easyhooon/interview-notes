@@ -2,6 +2,6 @@
 
 개인 면접 준비 기록입니다. 질문별 짧은 답변과 꼬리질문, 근거와 미확인 사항을 정리합니다.
 
-- [Android 면접 Q1~Q21](android/INTERVIEW_ANDROID.md)
+- [Android 면접 Q1~Q22](android/INTERVIEW_ANDROID.md)
 
 확인되지 않은 내용은 성과로 단정하지 않고, 연습과 추가 확인을 거쳐 갱신합니다.
